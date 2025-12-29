@@ -4,7 +4,7 @@
 #include "thread_pool.h"
 
 int main() {
-    Database db("workshop.db");
+    Database db("workshops.db");
     db.init();
 
     WorkshopService service(db);
