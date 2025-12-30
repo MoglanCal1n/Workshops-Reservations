@@ -3,6 +3,19 @@
 #include "service.h"
 #include "thread_pool.h"
 
+struct CORSMiddleware {
+    struct context {};
+
+    void before_handle(crow::request& req, crow::response& res, context& ctx) {
+    }
+
+    void after_handle(crow::request& req, crow::response& res, context& ctx) {
+        res.add_header("Access-Control-Allow-Origin", "*");
+        res.add_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+        res.add_header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+};
+
 int main() {
     Database db("workshops.db");
     db.init();
@@ -15,14 +28,22 @@ int main() {
     });
     verifier.detach();
 
-    crow::SimpleApp app;
+    crow::App<CORSMiddleware> app;
 
-    CROW_ROUTE(app, "/rezerva").methods(crow::HTTPMethod::POST)
+    CROW_ROUTE(app, "/rezerva").methods(crow::HTTPMethod::POST, crow::HTTPMethod::OPTIONS)
     ([&pool, &service](const crow::request& req){
+        if (req.method == crow::HTTPMethod::OPTIONS) {
+            return crow::response(200); // Middleware-ul va atasa headerele CORS automat
+        }
+
         auto x = crow::json::load(req.body);
         if (!x) return crow::response(400);
 
         RezervareRequest r;
+        if (!x.has("nume") || !x.has("cnp") || !x.has("centru_id") || !x.has("atelier_id") || !x.has("ora")) {
+            return crow::response(400, "Invalid JSON structure");
+        }
+
         r.nume = x["nume"].s();
         r.cnp = x["cnp"].s();
         r.centru_id = x["centru_id"].i();
@@ -34,14 +55,19 @@ int main() {
         });
 
         crow::response resp;
-        resp.add_header("Access-Control-Allow-Origin", "*");
         resp.body = future.get();
         return resp;
     });
 
-    CROW_ROUTE(app, "/plateste").methods(crow::HTTPMethod::POST)
+    CROW_ROUTE(app, "/plateste").methods(crow::HTTPMethod::POST, crow::HTTPMethod::OPTIONS)
     ([&pool, &service](const crow::request& req){
+        if (req.method == crow::HTTPMethod::OPTIONS) {
+            return crow::response(200);
+        }
+
         auto x = crow::json::load(req.body);
+        if (!x) return crow::response(400);
+
         int id = x["id"].i();
         double suma = x["suma"].d();
 
@@ -50,13 +76,9 @@ int main() {
         });
 
         crow::response resp;
-        resp.add_header("Access-Control-Allow-Origin", "*");
         resp.body = future.get();
         return resp;
     });
-
-    CROW_ROUTE(app, "/rezerva").methods(crow::HTTPMethod::OPTIONS)([](){ return crow::response(200); });
-    CROW_ROUTE(app, "/plateste").methods(crow::HTTPMethod::OPTIONS)([](){ return crow::response(200); });
 
     app.port(8080).multithreaded().run();
 }
