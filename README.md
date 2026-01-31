@@ -26,7 +26,7 @@ Acest proiect implementeaza o aplicatie client-server pentru gestionarea rezerva
 
 ### 4. Pornim aplicatia
 - ./server.exe 8 5 15 -> aplicatia accepta urmatorii parametrii de la linia de comanda 
-    - ./server <nr_threaduri> <interval_audit> <timeout_plata>
+    - ./server.exe <nr_threaduri> <interval_audit> <timeout_plata>
 
 - Pentru Client
     - cd client
