@@ -9,8 +9,8 @@ class WorkshopService {
 
         std::string proceseazaRezervare(RezervareRequest req);
         std::string proceseazaPlata(int id, double suma);
-        void runPeriodicChecks();
-
+        std::string proceseazaAnulare(int id);
+        void runPeriodicChecks(int interval_secunde, int timeout_plata_secunde);
     private:
         Database& db;
 };

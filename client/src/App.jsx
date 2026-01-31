@@ -1,31 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import './App.css'; // Vom adauga stiluri imediat
+import './App.css'; 
 
 const API_URL = "http://localhost:8080";
 
 function App() {
-  // --- Stare (State) ---
-  const [step, setStep] = useState('FORM'); // FORM, PAYMENT, SUCCESS, FAIL, EXPIRED
+  const [step, setStep] = useState('FORM');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
-  // Date formular
   const [formData, setFormData] = useState({
     nume: '',
     cnp: '',
     centru_id: 1,
     atelier_id: 1,
-    ora: '2023-10-27 10:00:00' // Hardcodat pentru demo, poti pune input type="datetime-local"
+    ora: new Date().toISOString().slice(0, 16)
   });
 
-  // Date rezervare
   const [rezervareId, setRezervareId] = useState(null);
-  
-  // Cronometru
+  const [refundAmount, setRefundAmount] = useState(0);
   const [timeLeft, setTimeLeft] = useState(12);
 
-  // --- Efect: Cronometrul de 12 secunde ---
   useEffect(() => {
     let timer = null;
     if (step === 'PAYMENT' && timeLeft > 0) {
@@ -38,27 +33,37 @@ function App() {
     return () => clearInterval(timer);
   }, [step, timeLeft]);
 
-  // --- Handlers ---
-
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    // Convertim in int pentru ID-uri
     const val = (name === 'centru_id' || name === 'atelier_id') ? parseInt(value) : value;
     setFormData({ ...formData, [name]: val });
   };
 
   const submitRezervare = async (e) => {
     e.preventDefault();
+
+    const dateObj = new Date(formData.ora);
+    const ora = dateObj.getHours();
+
+    if (ora < 9 || ora >= 17) {
+        alert("⚠️ Centrul este închis!\n\nRezervările se pot face doar între orele 09:00 și 17:00.");
+        return;
+    }
+
     setLoading(true);
     setError('');
 
+    const dataPentruServer = {
+        ...formData,
+        ora: formData.ora.replace('T', ' ') + ':00'
+    };
+
     try {
-      // 1. Trimitem cererea la C++
-      const res = await axios.post(`${API_URL}/rezerva`, formData);
+      const res = await axios.post(`${API_URL}/rezerva`, dataPentruServer);
       
       if (res.data.status === 'success') {
         setRezervareId(res.data.id);
-        setTimeLeft(12); // Resetam timerul
+        setTimeLeft(12);
         setStep('PAYMENT');
       } else {
         setError(res.data.message || 'Rezervare eșuată');
@@ -74,10 +79,9 @@ function App() {
   const submitPlata = async () => {
     setLoading(true);
     try {
-      // 2. Trimitem plata
       const res = await axios.post(`${API_URL}/plateste`, {
         id: rezervareId,
-        suma: 50.00 // Pret fix pentru demo
+        suma: 50.00 
       });
 
       if (res.data.status === 'paid') {
@@ -93,20 +97,42 @@ function App() {
     }
   };
 
+  const submitAnulare = async () => {
+    if (!rezervareId) return;
+    setLoading(true);
+    try {
+        const res = await axios.post(`${API_URL}/anuleaza`, {
+            id: rezervareId
+        });
+
+        if (res.data.status === 'refunded') {
+            setRefundAmount(res.data.amount);
+            setStep('CANCELLED');
+        } else {
+            alert("Eroare la anulare: " + res.data.message);
+        }
+    } catch (err) {
+        console.error(err);
+        alert("Eroare de conexiune la server pentru anulare.");
+    } finally {
+        setLoading(false);
+    }
+  };
+
   const resetFlow = () => {
     setStep('FORM');
     setTimeLeft(12);
     setError('');
     setRezervareId(null);
+    setRefundAmount(0);
+    setFormData(prev => ({...prev, ora: new Date().toISOString().slice(0, 16)}));
   };
 
-  // --- Interfata (Render) ---
   return (
     <div className="container">
       <div className="card">
         <h1>Ateliere Culturale</h1>
         
-        {/* PASUL 1: Formular */}
         {step === 'FORM' && (
           <form onSubmit={submitRezervare}>
             <div className="form-group">
@@ -133,10 +159,17 @@ function App() {
                 </select>
               </div>
             </div>
+            
             <div className="form-group">
               <label>Data și Ora</label>
-              <input name="ora" defaultValue={formData.ora} onChange={handleInputChange} />
-              <small>Format: YYYY-MM-DD HH:MM:SS</small>
+              <input 
+                type="datetime-local" 
+                name="ora" 
+                value={formData.ora} 
+                onChange={handleInputChange} 
+                required
+                min={new Date().toISOString().slice(0, 16)} 
+              />
             </div>
             
             <button type="submit" disabled={loading} className="btn-primary">
@@ -146,7 +179,6 @@ function App() {
           </form>
         )}
 
-        {/* PASUL 2: Plata */}
         {step === 'PAYMENT' && (
           <div className="payment-view">
             <h2>Rezervare Provizorie #{rezervareId}</h2>
@@ -163,16 +195,35 @@ function App() {
           </div>
         )}
 
-        {/* PASUL 3: Succes */}
         {step === 'SUCCESS' && (
           <div className="result-view success">
             <h2>🎉 Rezervare Confirmată!</h2>
             <p>Te așteptăm la atelier.</p>
-            <button onClick={resetFlow}>Rezervare Nouă</button>
+            
+            <div className="action-buttons" style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '20px' }}>
+                <button onClick={resetFlow} className="btn-primary">Rezervare Nouă</button>
+                <button 
+                    onClick={submitAnulare} 
+                    disabled={loading}
+                    style={{ backgroundColor: '#dc3545', color: 'white', border: 'none' }}
+                >
+                    {loading ? 'Se anulează...' : 'Anulează & Cere Refund'}
+                </button>
+            </div>
           </div>
         )}
 
-        {/* PASUL 4: Esec / Expirat */}
+        {step === 'CANCELLED' && (
+             <div className="result-view fail">
+                <h2 style={{color: '#666'}}>Rezervare Anulată</h2>
+                <p>Locul a fost eliberat.</p>
+                <div style={{ backgroundColor: '#e2e3e5', padding: '10px', borderRadius: '5px', margin: '15px 0', color: '#383d41' }}>
+                    <strong>RAMBURS EFECTUAT:</strong> {refundAmount} RON
+                </div>
+                <button onClick={resetFlow}>Înapoi la început</button>
+             </div>
+        )}
+
         {(step === 'FAIL' || step === 'EXPIRED') && (
           <div className="result-view fail">
             <h2>{step === 'EXPIRED' ? '⏱️ Timpul a expirat' : '❌ Eroare'}</h2>

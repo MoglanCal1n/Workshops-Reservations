@@ -16,24 +16,40 @@ struct CORSMiddleware {
     }
 };
 
-int main() {
+int main(int argc, char* argv[]) {
+    int p_threads = 4;
+    int audit_interval = 5;
+    int plata_timeout = 12;
+
+    if (argc >= 4) {
+        p_threads = std::stoi(argv[1]);
+        audit_interval = std::stoi(argv[2]);
+        plata_timeout = std::stoi(argv[3]);
+    }
+
+    std::cout << "--- SERVER START ---" << std::endl;
+    std::cout << "Threaduri: " << p_threads << std::endl;
+    std::cout << "Interval Verificare: " << audit_interval << "s" << std::endl;
+    std::cout << "Timeout Plata: " << plata_timeout << "s" << std::endl;
+
     Database db("workshops.db");
     db.init();
+    
 
     WorkshopService service(db);
-    ThreadPool pool(4);
+    ThreadPool pool(p_threads); 
 
-    std::thread verifier([&service]() {
-        service.runPeriodicChecks();
+    std::thread verifier([&service, audit_interval, plata_timeout]() {
+        service.runPeriodicChecks(audit_interval, plata_timeout); 
     });
     verifier.detach();
 
     crow::App<CORSMiddleware> app;
 
-    CROW_ROUTE(app, "/rezerva").methods(crow::HTTPMethod::POST, crow::HTTPMethod::OPTIONS)
+    CROW_ROUTE(app, "/rezerva").methods(crow::HTTPMethod::Post, crow::HTTPMethod::Options)
     ([&pool, &service](const crow::request& req){
-        if (req.method == crow::HTTPMethod::OPTIONS) {
-            return crow::response(200); // Middleware-ul va atasa headerele CORS automat
+        if (req.method == crow::HTTPMethod::Options) {
+            return crow::response(200);
         }
 
         auto x = crow::json::load(req.body);
@@ -59,9 +75,9 @@ int main() {
         return resp;
     });
 
-    CROW_ROUTE(app, "/plateste").methods(crow::HTTPMethod::POST, crow::HTTPMethod::OPTIONS)
+    CROW_ROUTE(app, "/plateste").methods(crow::HTTPMethod::Post, crow::HTTPMethod::Options)
     ([&pool, &service](const crow::request& req){
-        if (req.method == crow::HTTPMethod::OPTIONS) {
+        if (req.method == crow::HTTPMethod::Options) {
             return crow::response(200);
         }
 
@@ -73,6 +89,26 @@ int main() {
 
         auto future = pool.enqueue([&service, id, suma] {
             return service.proceseazaPlata(id, suma);
+        });
+
+        crow::response resp;
+        resp.body = future.get();
+        return resp;
+    });
+
+    CROW_ROUTE(app, "/anuleaza").methods(crow::HTTPMethod::Post, crow::HTTPMethod::Options)
+    ([&pool, &service](const crow::request& req){
+        if (req.method == crow::HTTPMethod::Options) {
+            return crow::response(200);
+        }
+
+        auto x = crow::json::load(req.body);
+        if (!x) return crow::response(400);
+
+        int id = x["id"].i(); 
+
+        auto future = pool.enqueue([&service, id] {
+            return service.proceseazaAnulare(id);
         });
 
         crow::response resp;
